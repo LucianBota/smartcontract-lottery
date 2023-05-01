@@ -8,6 +8,7 @@ import "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/KeeperCompatibleInterface.sol";
 
+error Raffle__InvalidNumOfEntries();
 error Raffle__NotEnoughETHEntered();
 error Raffle__TransferFailed();
 error Raffle__NotOpen();
@@ -33,6 +34,7 @@ contract Raffle is VRFConsumerBaseV2, KeeperCompatibleInterface {
 
 	/* State Variables */
 	uint256 private immutable i_entranceFee;
+	uint256 private immutable i_maxEntriesPerPlayer;
 	address payable[] private s_players;
 	VRFCoordinatorV2Interface private immutable i_vrfCoordinator;
 	bytes32 private immutable i_gasLane;
@@ -55,12 +57,14 @@ contract Raffle is VRFConsumerBaseV2, KeeperCompatibleInterface {
 	constructor(
 		address vrfCoordinatorV2,
 		uint256 entranceFee,
+		uint256 maxEntriesPerPlayer,
 		bytes32 gasLane,
 		uint64 subscriptionId,
 		uint32 callbackGasLimit,
 		uint256 interval
 	) VRFConsumerBaseV2(vrfCoordinatorV2) {
 		i_entranceFee = entranceFee;
+		i_maxEntriesPerPlayer = maxEntriesPerPlayer;
 		i_vrfCoordinator = VRFCoordinatorV2Interface(vrfCoordinatorV2);
 		i_gasLane = gasLane;
 		i_subscriptionId = subscriptionId;
@@ -70,14 +74,19 @@ contract Raffle is VRFConsumerBaseV2, KeeperCompatibleInterface {
 		i_interval = interval;
 	}
 
-	function enterRaffle() public payable {
-		if (msg.value < i_entranceFee) {
+	function enterRaffle(uint256 numEntries) public payable {
+		if (numEntries == 0 || numEntries > i_maxEntriesPerPlayer) {
+			revert Raffle__InvalidNumOfEntries();
+		}
+		if (msg.value < i_entranceFee * numEntries) {
 			revert Raffle__NotEnoughETHEntered();
 		}
 		if (s_raffleState != RaffleState.OPEN) {
 			revert Raffle__NotOpen();
 		}
-		s_players.push(payable(msg.sender));
+		for (uint256 i = 0; i < numEntries; i++) {
+			s_players.push(payable(msg.sender));
+		}
 		emit RaffleEnter(msg.sender);
 	}
 
@@ -147,8 +156,27 @@ contract Raffle is VRFConsumerBaseV2, KeeperCompatibleInterface {
 		return i_entranceFee;
 	}
 
+	function getMaxEntriesPerPlayer() public view returns (uint256) {
+		return i_maxEntriesPerPlayer;
+	}
+
 	function getPlayer(uint256 index) public view returns (address) {
 		return s_players[index];
+	}
+
+	function getPlayerEntries(address player) public view returns (uint256) {
+		uint playerEntries = 0;
+
+		for (uint i = 0; i < s_players.length; i++) {
+			if (s_players[i] == player) {
+				playerEntries++;
+			}
+		}
+		return playerEntries;
+	}
+
+	function getTotalEntries() public view returns (uint256) {
+		return s_players.length;
 	}
 
 	function getRecentWinner() public view returns (address) {
@@ -161,10 +189,6 @@ contract Raffle is VRFConsumerBaseV2, KeeperCompatibleInterface {
 
 	function getNumWords() public pure returns (uint256) {
 		return NUM_WORDS;
-	}
-
-	function getNumberOfPlayers() public view returns (uint256) {
-		return s_players.length;
 	}
 
 	function getLatestTimeStamp() public view returns (uint256) {

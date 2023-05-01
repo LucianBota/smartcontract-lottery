@@ -8,7 +8,12 @@ const { assert, expect } = require("chai");
 !developmentChains.includes(network.name)
 	? describe.skip
 	: describe("Raffle Unit Tests", function () {
-			let raffle, vrfCoordinatorV2Mock, raffleEntranceFee, deployer, interval;
+			let raffle,
+				vrfCoordinatorV2Mock,
+				raffleEntranceFee,
+				raffleMaxEntriesPerPlayer,
+				deployer,
+				interval;
 			const chainId = network.config.chainId;
 
 			beforeEach(async function () {
@@ -20,6 +25,7 @@ const { assert, expect } = require("chai");
 					deployer
 				);
 				raffleEntranceFee = await raffle.getEntranceFee();
+				raffleMaxEntriesPerPlayer = await raffle.getMaxEntriesPerPlayer();
 				interval = await raffle.getInterval();
 			});
 
@@ -33,23 +39,33 @@ const { assert, expect } = require("chai");
 			});
 
 			describe("enterRaffle", function () {
+				it("reverts when you don't enter a valid number of entries", async function () {
+					await expect(raffle.enterRaffle(0)).to.be.revertedWith(
+						"Raffle__InvalidNumOfEntries"
+					);
+				});
+				it("reverts when you exceed the maximum number of entries allowed per player", async function () {
+					await expect(
+						raffle.enterRaffle(raffleMaxEntriesPerPlayer + 1)
+					).to.be.revertedWith("Raffle__InvalidNumOfEntries");
+				});
 				it("reverts when you don't pay enough", async function () {
-					await expect(raffle.enterRaffle()).to.be.revertedWith(
+					await expect(raffle.enterRaffle(1)).to.be.revertedWith(
 						"Raffle__NotEnoughETHEntered"
 					);
 				});
 				it("records players when they enter", async function () {
-					await raffle.enterRaffle({ value: raffleEntranceFee });
+					await raffle.enterRaffle(1, { value: raffleEntranceFee });
 					const playerFromContract = await raffle.getPlayer(0);
 					assert.equal(playerFromContract, deployer);
 				});
 				it("emits event on enter", async function () {
 					await expect(
-						raffle.enterRaffle({ value: raffleEntranceFee })
+						raffle.enterRaffle(1, { value: raffleEntranceFee })
 					).to.emit(raffle, "RaffleEnter");
 				});
 				it("doesn't allow entrance when raffle is calculating", async function () {
-					await raffle.enterRaffle({ value: raffleEntranceFee });
+					await raffle.enterRaffle(1, { value: raffleEntranceFee });
 					await network.provider.send("evm_increaseTime", [
 						interval.toNumber() + 1,
 					]);
@@ -57,7 +73,7 @@ const { assert, expect } = require("chai");
 					// We pretend to be a Chainlink Keeper
 					await raffle.performUpkeep([]);
 					await expect(
-						raffle.enterRaffle({ value: raffleEntranceFee })
+						raffle.enterRaffle(1, { value: raffleEntranceFee })
 					).to.be.revertedWith("Raffle__NotOpen");
 				});
 			});
@@ -71,7 +87,7 @@ const { assert, expect } = require("chai");
 					assert(!upkeepNeeded);
 				});
 				it("returns false if raffle isn't open", async function () {
-					await raffle.enterRaffle({ value: raffleEntranceFee });
+					await raffle.enterRaffle(1, { value: raffleEntranceFee });
 					await network.provider.send("evm_increaseTime", [
 						interval.toNumber() + 1,
 					]);
@@ -83,7 +99,7 @@ const { assert, expect } = require("chai");
 					assert.equal(upkeepNeeded, false);
 				});
 				it("returns false if enough time hasn't passed", async function () {
-					await raffle.enterRaffle({ value: raffleEntranceFee });
+					await raffle.enterRaffle(1, { value: raffleEntranceFee });
 					await network.provider.send("evm_increaseTime", [
 						interval.toNumber() - 5,
 					]); // use a higher number here if this test fails
@@ -92,7 +108,7 @@ const { assert, expect } = require("chai");
 					assert(!upkeepNeeded);
 				});
 				it("returns true if enough time has passed, has players, eth, and is open", async function () {
-					await raffle.enterRaffle({ value: raffleEntranceFee });
+					await raffle.enterRaffle(1, { value: raffleEntranceFee });
 					await network.provider.send("evm_increaseTime", [
 						interval.toNumber() + 1,
 					]);
@@ -103,7 +119,7 @@ const { assert, expect } = require("chai");
 			});
 			describe("performUpkeep", function () {
 				it("can only run if checkupkeep is true", async function () {
-					await raffle.enterRaffle({ value: raffleEntranceFee });
+					await raffle.enterRaffle(1, { value: raffleEntranceFee });
 					await network.provider.send("evm_increaseTime", [
 						interval.toNumber() + 1,
 					]);
@@ -117,7 +133,7 @@ const { assert, expect } = require("chai");
 					);
 				});
 				it("updates the raffle state, emits an event, and calls the vrf coodrinator", async function () {
-					await raffle.enterRaffle({ value: raffleEntranceFee });
+					await raffle.enterRaffle(1, { value: raffleEntranceFee });
 					await network.provider.send("evm_increaseTime", [
 						interval.toNumber() + 1,
 					]);
@@ -132,7 +148,7 @@ const { assert, expect } = require("chai");
 			});
 			describe("fulfillRandomWords", function () {
 				beforeEach(async function () {
-					await raffle.enterRaffle({ value: raffleEntranceFee });
+					await raffle.enterRaffle(1, { value: raffleEntranceFee });
 					await network.provider.send("evm_increaseTime", [
 						interval.toNumber() + 1,
 					]);
@@ -156,7 +172,7 @@ const { assert, expect } = require("chai");
 						i++
 					) {
 						const accountConnectedRaffle = raffle.connect(accounts[i]);
-						await accountConnectedRaffle.enterRaffle({
+						await accountConnectedRaffle.enterRaffle(1, {
 							value: raffleEntranceFee,
 						});
 					}
@@ -172,9 +188,9 @@ const { assert, expect } = require("chai");
 								const recentWinner = await raffle.getRecentWinner();
 								const raffleState = await raffle.getRaffleState();
 								const endingTimeStamp = await raffle.getLatestTimeStamp();
-								const numPlayers = await raffle.getNumberOfPlayers();
+								const totalEntries = await raffle.getTotalEntries();
 								const winnerEndingBalance = await accounts[1].getBalance();
-								assert.equal(numPlayers.toString(), "0");
+								assert.equal(totalEntries.toString(), "0");
 								assert.equal(raffleState.toString(), "0");
 								assert(endingTimeStamp > startingTimeStamp);
 

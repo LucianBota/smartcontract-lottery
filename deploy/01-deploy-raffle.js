@@ -33,6 +33,7 @@ module.exports = async function ({ getNamedAccounts, deployments }) {
 	}
 
 	const entranceFee = networkConfig[chainId]["entranceFee"];
+	const maxEntriesPerPlayer = networkConfig[chainId]["maxEntriesPerPlayer"];
 	const gasLane = networkConfig[chainId]["gasLane"];
 	const callbackGasLimit = networkConfig[chainId]["callbackGasLimit"];
 	const interval = networkConfig[chainId]["interval"];
@@ -40,6 +41,7 @@ module.exports = async function ({ getNamedAccounts, deployments }) {
 	const args = [
 		vrfCoordinatorV2Address,
 		entranceFee,
+		maxEntriesPerPlayer,
 		gasLane,
 		subscriptionId,
 		callbackGasLimit,
